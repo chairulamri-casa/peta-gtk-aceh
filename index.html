@@ -326,7 +326,7 @@ function defaultTahunAjaran() {
 }
 const DEFAULT_SETTINGS = {
   idealRasio: { RA: 15, MI: 20, MTs: 25, MA: 25 }, ambangKurang: 0.15, ambangLebih: 0.15,
-  jtmMapel: MAPEL_JTM_DEFAULT, bebanWajib: 24, totalJamFactor: 4, usiaPensiun: 60,
+  jtmMapel: MAPEL_JTM_DEFAULT, bebanWajib: 24, totalJamFactor: 4, usiaPensiun: 60, usiaPensiunTendik: 58,
   tahunAjaranAktif: defaultTahunAjaran(), daftarTahunAjaran: [defaultTahunAjaran()], targetIPG: { MI: "", MTs: "", MA: "" }, targetKompetensiGuru: ""
 };
 const KELAS_OPTIONS = {
@@ -1296,8 +1296,39 @@ function buildProgresPengisian(masterList, rombelData, guruData, isianList, acti
 // Proyeksi Pensiun — dari tanggal lahir guru aktif, hitung tahun pensiun (lahir + usia pensiun),
 // lalu kelompokkan per tahun ke depan, per kab/kota, dan per mapel — untuk perencanaan formasi
 // jangka panjang (bukan reaktif), dan nanti dipakai juga di Profil Satu Halaman Madrasah.
-function buildProyeksiPensiun(guruData, settings, tahunRentang = 10) {
-  const usiaPensiun = Number(settings.usiaPensiun) || 60;
+// Menghitung tanggal persis genap usia pensiun (tanggal lahir + N tahun), bukan cuma tahunnya saja —
+// supaya bisa dibandingkan presisi terhadap hari ini (today), sesuai cara kerja BUP kepegawaian.
+function tanggalGenapUsia(tanggalLahir, usiaTahun) {
+  if (!tanggalLahir) return null;
+  const lahir = new Date(tanggalLahir);
+  if (isNaN(lahir.getTime())) return null;
+  return new Date(lahir.getFullYear() + usiaTahun, lahir.getMonth(), lahir.getDate());
+}
+// Deteksi guru/tendik/pengawas yang MASIH berstatus Aktif tapi tanggal genap usia pensiunnya
+// (tanggal lahir + usia pensiun sesuai jenis) SUDAH LEWAT hari ini — kandidat yang perlu segera
+// dinonaktifkan admin. Berbeda dari buildProyeksiPensiun yang isinya proyeksi ke DEPAN.
+// Usia pensiun dibedakan sesuai aturan kepegawaian: Guru & Pengawas (jabatan fungsional) = 60 tahun;
+// Tendik (jabatan administrasi/struktural, bukan fungsional guru) = 58 tahun.
+function findSudahLewatUsiaPensiun(guruData, tendikData, pengawasData, settings) {
+  const usiaGuru = Number(settings.usiaPensiun) || 60;
+  const usiaTendik = Number(settings.usiaPensiunTendik) || 58;
+  const today = new Date();
+  const proses = (arr, jenis, usiaDefault) => arr
+    .filter((g) => g.statusAktif !== "Non-Aktif" && g.tanggalLahir)
+    .map((g) => {
+      // Data lama: Kepala Madrasah yang masih tercatat di tabel Tendik (bukan dari Data Guru)
+      // tetap posisi fungsional guru — usia pensiunnya ikut usiaGuru, bukan usiaTendik.
+      const usiaPensiun = (jenis === "Tendik" && g.jenisTendik === "Kepala Madrasah") ? usiaGuru : usiaDefault;
+      const tglPensiun = tanggalGenapUsia(g.tanggalLahir, usiaPensiun);
+      if (!tglPensiun || tglPensiun > today) return null;
+      const hariTerlambat = Math.floor((today - tglPensiun) / 86400000);
+      return { ...g, _jenis: jenis, _usiaPensiun: usiaPensiun, tglPensiun, hariTerlambat };
+    })
+    .filter(Boolean);
+  return [...proses(guruData, "Guru", usiaGuru), ...proses(tendikData, "Tendik", usiaTendik), ...proses(pengawasData, "Pengawas", usiaGuru)]
+    .sort((a, b) => b.hariTerlambat - a.hariTerlambat);
+}
+function buildProyeksiPensiun(guruData, settings, tahunRentang = 10) {  const usiaPensiun = Number(settings.usiaPensiun) || 60;
   const tahunSekarang = new Date().getFullYear();
   const bulanSekarang = new Date().getMonth();
 
@@ -2291,7 +2322,7 @@ function App() {
 
         <div className="flex-1 min-w-0">
           <main className="max-w-6xl mx-auto px-6 py-8">
-            {tab === "dashboard" && identity.role === "kanwil" && <Dashboard guruData={yearGuruActive} rombelData={yearRombel} analysis={analysis} progresPengisian={progresPengisian} allLists={{ Guru: guruList.data, Tendik: tendikList.data, "Master Madrasah": masterList.data, "Rombel & Siswa": rombelList.data, Pengawas: pengawasList.data }} />}
+            {tab === "dashboard" && identity.role === "kanwil" && <Dashboard guruData={yearGuruActive} rombelData={yearRombel} analysis={analysis} progresPengisian={progresPengisian} allLists={{ Guru: guruList.data, Tendik: tendikList.data, "Master Madrasah": masterList.data, "Rombel & Siswa": rombelList.data, Pengawas: pengawasList.data }} pensiunTerlewatCount={findSudahLewatUsiaPensiun(yearGuruActive, tendikList.data.filter((r) => (r.tahunAjaran || defaultTahunAjaran()) === activeYear), pengawasList.data.filter((r) => (r.tahunAjaran || defaultTahunAjaran()) === activeYear), settings).length} onGotoPensiun={() => setTab("pensiun")} />}
             {tab === "profil" && <ProfilTab guruList={guruList.data} tendikList={tendikList.data} pengawasList={pengawasList.data} masterList={masterList.data} rombelList={rombelList.data} mapelAnalysis={mapelAnalysis} activeYear={activeYear} identity={identity} />}
             {tab === "guru" && <DataGuruTab list={guruList} settings={settings} lockIdentity={identity.role === "madrasah" ? identity : null} masterList={masterList.data} activeYear={activeYear} />}
             {tab === "tendik" && <DataTendikTab list={tendikList} lockIdentity={identity.role === "madrasah" ? identity : null} masterList={masterList.data} activeYear={activeYear} />}
@@ -2304,7 +2335,7 @@ function App() {
             {tab === "rekomendasi" && identity.role === "kanwil" && <RekomendasiMutasiTab mapelAnalysis={mapelAnalysis} />}
             {tab === "isian" && <IsianKebutuhanTab mapelAnalysis={mapelAnalysis} rombelData={yearRombel} guruData={yearGuruActive} isianList={isianList.data} setIsianList={isianList.setData} pilihanList={pilihanList.data} setPilihanList={pilihanList.setData} settings={settings} lockIdentity={identity.role === "madrasah" ? identity : null} activeYear={activeYear} />}
             {tab === "peta" && identity.role === "kanwil" && <PetaTab analysis={analysis} mapelAnalysis={mapelAnalysis} guruData={guruList.data} rombelData={rombelList.data} isianData={isianList.data} pilihanData={pilihanList.data} settings={settings} />}
-            {tab === "pensiun" && identity.role === "kanwil" && <ProyeksiPensiunTab guruData={yearGuruActive} settings={settings} activeYear={activeYear} />}
+            {tab === "pensiun" && identity.role === "kanwil" && <ProyeksiPensiunTab guruData={yearGuruActive} settings={settings} activeYear={activeYear} guruList={guruList} tendikList={tendikList} pengawasList={pengawasList} />}
             {tab === "cetak" && <CetakTab rombelData={yearRombel} guruData={yearGuruActive} isianList={yearIsian} pilihanList={pilihanList.data} settings={settings} profilList={profilList.data} setProfilList={profilList.setData} lockIdentity={identity.role === "madrasah" ? identity : null} />}
             {tab === "laporan" && identity.role === "kanwil" && <LaporanTab masterList={masterList.data} guruData={yearGuruActive} tendikList={tendikList.data} pengawasList={pengawasList.data} analysis={analysis} mapelAnalysis={mapelAnalysis} ipg={ipg} kompetensiSummary={kompetensiSummary} rekapPenyebab={rekapPenyebab} kebutuhanPengawas={kebutuhanPengawas} settings={settings} activeYear={activeYear} />}
             {tab === "pengaturan" && identity.role === "kanwil" && <PengaturanTab settings={settings} onSave={saveSettings} guruList={guruList} rombelList={rombelList} isianList={isianList} masterList={masterList} profilList={profilList} tendikList={tendikList} pilihanList={pilihanList} pengawasList={pengawasList} siswaInklusiList={siswaInklusiList} setViewYear={setViewYear} />}
@@ -2320,7 +2351,7 @@ function App() {
 }
 
 /* ============================== DASHBOARD ============================== */
-function Dashboard({ guruData, rombelData, analysis, progresPengisian, allLists }) {
+function Dashboard({ guruData, rombelData, analysis, progresPengisian, allLists, pensiunTerlewatCount, onGotoPensiun }) {
   const totalGuru = guruData.length;
   const totalSiswa = rombelData.reduce((s, r) => s + (Number(r.jumlahSiswa) || 0), 0);
   const totalRombel = rombelData.reduce((s, r) => s + (Number(r.jumlahRombel) || 0), 0);
@@ -2353,6 +2384,15 @@ function Dashboard({ guruData, rombelData, analysis, progresPengisian, allLists 
 
   return (
     <div className="space-y-6">
+      {pensiunTerlewatCount > 0 && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2.5">
+            <Icon name="alert" size={18} className="text-rose-600 shrink-0" />
+            <p className="text-sm text-rose-800"><strong>{pensiunTerlewatCount} orang</strong> (guru/tendik/pengawas) sudah melewati usia pensiun tapi masih berstatus Aktif — segera ditindaklanjuti.</p>
+          </div>
+          <button onClick={onGotoPensiun} className="px-3 py-1.5 text-xs rounded-lg bg-rose-700 text-white hover:bg-rose-800 shrink-0">Lihat Daftar</button>
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Guru Tercatat" value={totalGuru.toLocaleString("id-ID")} icon="users" accent="#0B4D3E" />
         <StatCard label="Total Siswa" value={totalSiswa.toLocaleString("id-ID")} icon="school" accent="#0E6B54" />
@@ -5158,7 +5198,80 @@ function LaporanTab({ masterList, guruData, tendikList, pengawasList, analysis, 
     </div>
   );
 }
-function ProyeksiPensiunTab({ guruData, settings, activeYear }) {
+function LewatUsiaPensiunPanel({ guruList, tendikList, pengawasList, settings, activeYear }) {
+  const daftar = useMemo(() => {
+    const scoped = (list) => list.data.filter((r) => (r.tahunAjaran || defaultTahunAjaran()) === activeYear);
+    return findSudahLewatUsiaPensiun(scoped(guruList), scoped(tendikList), scoped(pengawasList), settings);
+  }, [guruList.data, tendikList.data, pengawasList.data, settings, activeYear]);
+  const [msg, setMsg] = useState("");
+
+  if (daftar.length === 0) return null;
+
+  const listFor = (jenis) => (jenis === "Guru" ? guruList : jenis === "Tendik" ? tendikList : pengawasList);
+  const nonaktifkanSatu = (r) => {
+    const list = listFor(r._jenis);
+    list.setData(list.data.map((x) => (x.id === r.id ? {
+      ...x, statusAktif: "Non-Aktif", alasanNonAktif: "Pensiun",
+      tanggalNonAktif: r.tglPensiun.toISOString().slice(0, 10)
+    } : x)));
+    setMsg(`${r.nama} (${r._jenis}) sudah dinonaktifkan dengan alasan Pensiun.`);
+    setTimeout(() => setMsg(""), 4000);
+  };
+  const nonaktifkanSemua = () => {
+    if (!window.confirm(`Nonaktifkan SEMUA ${daftar.length} orang dalam daftar ini sekaligus, dengan alasan "Pensiun" dan tanggal non-aktif sesuai tanggal genap usia pensiun masing-masing? Tindakan ini bisa dikoreksi satu-satu lewat Edit data kalau ada yang keliru (mis. sudah diperpanjang/masih menunggu SK).`)) return;
+    ["Guru", "Tendik", "Pengawas"].forEach((jenis) => {
+      const rows = daftar.filter((r) => r._jenis === jenis);
+      if (rows.length === 0) return;
+      const idsMap = new Map(rows.map((r) => [r.id, r]));
+      const list = listFor(jenis);
+      list.setData(list.data.map((x) => (idsMap.has(x.id) ? {
+        ...x, statusAktif: "Non-Aktif", alasanNonAktif: "Pensiun",
+        tanggalNonAktif: idsMap.get(x.id).tglPensiun.toISOString().slice(0, 10)
+      } : x)));
+    });
+    setMsg(`${daftar.length} orang berhasil dinonaktifkan sekaligus dengan alasan Pensiun.`);
+    setTimeout(() => setMsg(""), 4000);
+  };
+
+  return (
+    <Card className="p-5 border-rose-200">
+      <h3 className="font-semibold mb-1 flex items-center gap-2 text-rose-800 font-display"><Icon name="alert" size={16} /> Sudah Melewati Usia Pensiun, Masih Berstatus Aktif ({daftar.length})</h3>
+      <p className="text-xs text-stone-500 mb-4">
+        Dihitung dari tanggal lahir persis + usia pensiun sesuai jenisnya — Guru &amp; Pengawas (jabatan fungsional) {settings.usiaPensiun || 60} tahun, Tendik (jabatan administrasi) {settings.usiaPensiunTendik || 58} tahun (bisa diubah di Pengaturan) — dibandingkan tanggal hari ini. Bukan proyeksi, ini yang <strong>sudah lewat</strong> tapi datanya belum diperbarui. Segera nonaktifkan supaya tidak ikut terhitung sebagai guru/tendik tersedia di analisis kebutuhan.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
+            <tr>
+              <th className="text-left px-3 py-2 font-medium">Nama</th><th className="text-left px-3 py-2 font-medium">Jenis</th>
+              <th className="text-left px-3 py-2 font-medium">Madrasah/Satuan</th><th className="text-right px-3 py-2 font-medium">Usia Pensiun</th>
+              <th className="text-left px-3 py-2 font-medium">Genap Pensiun</th>
+              <th className="text-right px-3 py-2 font-medium">Terlambat</th><th className="text-right px-3 py-2 font-medium">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {daftar.map((r) => (
+              <tr key={r._jenis + r.id} className="border-t border-stone-100">
+                <td className="px-3 py-2 text-stone-700 font-medium">{r.nama}</td>
+                <td className="px-3 py-2"><Badge>{r._jenis}</Badge></td>
+                <td className="px-3 py-2 text-stone-600">{r.madrasah || r.kabkota}</td>
+                <td className="px-3 py-2 text-right text-stone-500">{r._usiaPensiun} th</td>
+                <td className="px-3 py-2 text-stone-600">{r.tglPensiun.toLocaleDateString("id-ID")}</td>
+                <td className="px-3 py-2 text-right"><Badge tone="bad">{r.hariTerlambat > 365 ? `${Math.floor(r.hariTerlambat / 365)} th ${Math.floor((r.hariTerlambat % 365) / 30)} bln` : `${Math.floor(r.hariTerlambat / 30)} bulan`}</Badge></td>
+                <td className="px-3 py-2 text-right"><button onClick={() => nonaktifkanSatu(r)} className="px-2.5 py-1.5 text-xs rounded-lg border border-stone-300 hover:bg-stone-50">Nonaktifkan</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center gap-3 mt-4 pt-3 border-t border-stone-100">
+        <button onClick={nonaktifkanSemua} className="px-3 py-2 text-xs rounded-lg bg-rose-700 text-white hover:bg-rose-800">Nonaktifkan Semua ({daftar.length})</button>
+        {msg && <span className="text-xs text-emerald-700 flex items-center gap-1"><Icon name="check" size={13} /> {msg}</span>}
+      </div>
+    </Card>
+  );
+}
+function ProyeksiPensiunTab({ guruData, settings, activeYear, guruList, tendikList, pengawasList }) {
   const [rentang, setRentang] = useState(10);
   const [filterKab, setFilterKab] = useState("");
   const proyeksi = useMemo(() => buildProyeksiPensiun(guruData, settings, rentang), [guruData, settings, rentang]);
@@ -5169,6 +5282,7 @@ function ProyeksiPensiunTab({ guruData, settings, activeYear }) {
 
   return (
     <div className="space-y-4">
+      <LewatUsiaPensiunPanel guruList={guruList} tendikList={tendikList} pengawasList={pengawasList} settings={settings} activeYear={activeYear} />
       <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
           <h3 className="font-semibold font-display flex items-center gap-2"><Icon name="users" size={16} /> Proyeksi Pensiun Guru</h3>
@@ -6173,8 +6287,11 @@ function PengaturanTab({ settings, onSave, guruList, rombelList, isianList, mast
         <Field label="Beban Wajib Mengajar Guru (jam/minggu)">
           <input type="number" className={inputCls + " max-w-[140px]"} value={form.bebanWajib} onChange={(e) => setForm({ ...form, bebanWajib: Number(e.target.value) })} />
         </Field>
-        <Field label="Usia Pensiun Guru (tahun) — dasar Proyeksi Pensiun">
+        <Field label="Usia Pensiun Guru & Pengawas (tahun) — jabatan fungsional">
           <input type="number" className={inputCls + " max-w-[140px]"} value={form.usiaPensiun || 60} onChange={(e) => setForm({ ...form, usiaPensiun: Number(e.target.value) })} />
+        </Field>
+        <Field label="Usia Pensiun Tendik (tahun) — jabatan administrasi">
+          <input type="number" className={inputCls + " max-w-[140px]"} value={form.usiaPensiunTendik || 58} onChange={(e) => setForm({ ...form, usiaPensiunTendik: Number(e.target.value) })} />
         </Field>
         <Field label="Faktor Pengali Kolom 'Total Jam' pada Dokumen Cetak">
           <input type="number" className={inputCls + " max-w-[140px]"} value={form.totalJamFactor} onChange={(e) => setForm({ ...form, totalJamFactor: Number(e.target.value) })} />
