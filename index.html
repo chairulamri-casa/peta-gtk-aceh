@@ -3411,19 +3411,21 @@ function RombelKelasEditor({ target, data, setData, title, activeYear }) {
               {adaLegacy && (
                 <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">Sebagian data di sini masih total lama (rincian L/P belum diisi) — isi kotak L/P di bawah untuk merincinya.</p>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-2">
                 {arr.map((row, idx) => (
-                  <div key={idx} className="flex items-center gap-1.5">
-                    <span className="text-xs text-stone-400 w-14 shrink-0">Kelas {k}{paralelLabel(idx)}</span>
-                    <div className="flex items-center gap-1 flex-1">
-                      <input type="number" className={inputCls.replace("w-full ", "") + " text-right"} placeholder={row.legacyTotal ? "L" : "L"} value={row.l} onChange={(e) => setParalelValue(k, idx, "l", e.target.value)} />
-                      <span className="text-[10px] text-stone-400">L</span>
-                      <input type="number" className={inputCls.replace("w-full ", "") + " text-right"} placeholder="P" value={row.p} onChange={(e) => setParalelValue(k, idx, "p", e.target.value)} />
-                      <span className="text-[10px] text-stone-400">P</span>
+                  <div key={idx} className="flex items-center flex-wrap gap-2 p-2 rounded-lg bg-stone-50/60">
+                    <span className="text-xs text-stone-500 font-medium w-20 shrink-0">Kelas {k}{paralelLabel(idx)}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-stone-400 w-3">L</span>
+                      <input type="number" className={inputCls.replace("w-full ", "") + " w-20 text-right"} placeholder="0" value={row.l} onChange={(e) => setParalelValue(k, idx, "l", e.target.value)} />
                     </div>
-                    <span className="text-xs text-stone-500 w-14 text-right shrink-0" title="Total siswa kelas ini">= {rowTotal(row)}{row.l === "" && row.p === "" && row.legacyTotal ? "*" : ""}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-stone-400 w-3">P</span>
+                      <input type="number" className={inputCls.replace("w-full ", "") + " w-20 text-right"} placeholder="0" value={row.p} onChange={(e) => setParalelValue(k, idx, "p", e.target.value)} />
+                    </div>
+                    <span className="text-xs text-stone-500 shrink-0" title="Total siswa kelas ini">= {rowTotal(row)}{row.l === "" && row.p === "" && row.legacyTotal ? "*" : ""} siswa</span>
                     {arr.length > 1 && (
-                      <button onClick={() => removeParalel(k, idx)} className="text-stone-300 hover:text-rose-600 shrink-0" title="Hapus kelas paralel ini"><Icon name="trash" size={13} /></button>
+                      <button onClick={() => removeParalel(k, idx)} className="text-stone-300 hover:text-rose-600 shrink-0 ml-auto" title="Hapus kelas paralel ini"><Icon name="trash" size={13} /></button>
                     )}
                   </div>
                 ))}
