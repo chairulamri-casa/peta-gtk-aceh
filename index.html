@@ -15,6 +15,11 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Preconnect supaya koneksi ke server data & CDN sudah "dihangatkan" lebih awal, mempercepat loading -->
+<link rel="preconnect" href="https://rslhymutlgaupkkayrcl.supabase.co" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="dns-prefetch" href="https://rslhymutlgaupkkayrcl.supabase.co">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -28,7 +33,15 @@
 </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="root">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#FAF8F3;font-family:'Plus Jakarta Sans',sans-serif;">
+    <div style="text-align:center;">
+      <div style="width:36px;height:36px;border:3px solid #0B4D3E33;border-top-color:#0B4D3E;border-radius:50%;margin:0 auto 14px;animation:petagtkspin 0.8s linear infinite;"></div>
+      <p style="color:#78716c;font-size:13px;">Memuat aplikasi PETA-GTK Aceh...</p>
+    </div>
+  </div>
+  <style>@keyframes petagtkspin { to { transform: rotate(360deg); } }</style>
+</div>
 <div id="offline-note" style="position:fixed;bottom:8px;right:10px;font-size:11px;color:#a8a29e;z-index:40;">PETA-GTK Aceh · data tersimpan online (Supabase)</div>
 
 <script type="text/plain" id="app-source">
@@ -533,17 +546,49 @@ async function supabaseSetSingle(key, value) {
 // Fungsi ini "meminta lanjutannya" berulang (pakai header Range) sampai semua baris terambil.
 async function supabaseFetchAll(table) {
   const pageSize = 1000;
-  let allRows = [];
-  let from = 0;
-  while (true) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id,data&order=id`, {
-      headers: { ...authHeaders(), Range: `${from}-${from + pageSize - 1}` }
-    });
-    if (!res.ok) throw new Error(`Gagal memuat "${table}" (${res.status})`);
-    const rows = await res.json();
-    allRows = allRows.concat(rows);
-    if (rows.length < pageSize) break; // halaman terakhir — sudah tidak ada lagi
-    from += pageSize;
+  // Ambil halaman pertama dulu, sekalian minta jumlah total baris (Prefer: count=exact) supaya
+  // tahu berapa banyak halaman sisanya yang perlu diambil.
+  const firstRes = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id,data&order=id`, {
+    headers: { ...authHeaders(), Range: `0-${pageSize - 1}`, Prefer: "count=exact" }
+  });
+  if (!firstRes.ok) throw new Error(`Gagal memuat "${table}" (${firstRes.status})`);
+  const firstRows = await firstRes.json();
+  let allRows = [...firstRows];
+
+  const contentRange = firstRes.headers.get("content-range") || "";
+  const totalMatch = contentRange.match(/\/(\d+)$/); // format header: "0-999/29892"
+  const total = totalMatch ? parseInt(totalMatch[1], 10) : null;
+
+  if (total && total > firstRows.length) {
+    // Jumlah total sudah diketahui dari halaman pertama — ambil SEMUA sisa halaman
+    // SEKALIGUS secara paralel (bukan satu-satu berurutan), jauh lebih cepat untuk tabel besar.
+    const permintaan = [];
+    for (let from = pageSize; from < total; from += pageSize) {
+      permintaan.push(
+        fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id,data&order=id`, {
+          headers: { ...authHeaders(), Range: `${from}-${from + pageSize - 1}` }
+        }).then(async (res) => {
+          if (!res.ok) throw new Error(`Gagal memuat "${table}" (${res.status})`);
+          return res.json();
+        })
+      );
+    }
+    const hasil = await Promise.all(permintaan);
+    hasil.forEach((rows) => { allRows = allRows.concat(rows); });
+  } else if (!total && firstRows.length === pageSize) {
+    // Cadangan kalau server tidak mengembalikan info jumlah total (jarang terjadi) — tetap
+    // jalan seperti sebelumnya (satu-satu berurutan), supaya tidak pernah gagal total.
+    let from = pageSize;
+    while (true) {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id,data&order=id`, {
+        headers: { ...authHeaders(), Range: `${from}-${from + pageSize - 1}` }
+      });
+      if (!res.ok) throw new Error(`Gagal memuat "${table}" (${res.status})`);
+      const rows = await res.json();
+      allRows = allRows.concat(rows);
+      if (rows.length < pageSize) break;
+      from += pageSize;
+    }
   }
   return allRows.map((r) => r.data);
 }
