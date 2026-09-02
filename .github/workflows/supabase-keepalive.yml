@@ -1,0 +1,21 @@
+# Heartbeat Supabase — "mengetuk pintu" Supabase PETA-GTK Aceh secara berkala supaya project
+# tidak pernah dianggap tidak aktif 7 hari berturut-turut (yang membuat paket gratis Supabase
+# otomatis "tidur"). Berjalan otomatis lewat GitHub Actions, gratis, tidak perlu disentuh manual.
+name: Supabase Keepalive - PETA-GTK Aceh
+
+on:
+  schedule:
+    # Setiap 3 hari sekali, jam 03:00 UTC (± 10.00 WIB) — jauh di bawah ambang 7 hari Supabase.
+    - cron: "0 3 */3 * *"
+  workflow_dispatch: {} # supaya bisa juga dijalankan manual kapan saja lewat tab "Actions" di GitHub
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping tabel Master Madrasah (baca 1 baris saja)
+        run: |
+          curl -s -o /dev/null -w "Status: %{http_code}\n" \
+            "https://rslhymutlgaupkkayrcl.supabase.co/rest/v1/master_madrasah?select=id&limit=1" \
+            -H "apikey: sb_publishable_tEk5lg-b4SPa2VNVF1FGmg_LEF11Lsv" \
+            -H "Authorization: Bearer sb_publishable_tEk5lg-b4SPa2VNVF1FGmg_LEF11Lsv"
