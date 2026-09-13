@@ -17,5 +17,5 @@ jobs:
         run: |
           curl -s -o /dev/null -w "Status: %{http_code}\n" \
             "https://rslhymutlgaupkkayrcl.supabase.co/rest/v1/master_madrasah?select=id&limit=1" \
-            -H "apikey: sb_publishable_tEk5lg-b4SPa2VNVF1FGmg_LEF11Lsv" \
-            -H "Authorization: Bearer sb_publishable_tEk5lg-b4SPa2VNVF1FGmg_LEF11Lsv"
+            -H "apikey: sb_publishable_BshMX5ng0Pu1-rBKckCOig_jrovDgNj" \
+            -H "Authorization: Bearer sb_publishable_BshMX5ng0Pu1-rBKckCOig_jrovDgNj"
